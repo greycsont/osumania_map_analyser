@@ -119,6 +119,18 @@ function emitResult(onResult, hasUpdate, latestTag = "", latestUrl = "") {
     onResult({ hasUpdate: Boolean(hasUpdate), latestTag, latestUrl });
 }
 
+function resolveCachedHasUpdate(cache, currentVersion) {
+    if (!cache || typeof cache !== "object") {
+        return false;
+    }
+
+    if (typeof cache.latestTag === "string" && cache.latestTag.trim().length > 0) {
+        return isLatestReleaseNewer(currentVersion, cache.latestTag);
+    }
+
+    return Boolean(cache.hasUpdate);
+}
+
 export async function runUpdateCheckIfDue({ enabled, currentVersion, onResult }) {
     return runUpdateCheckIfDueInternal({
         enabled,
@@ -147,7 +159,12 @@ async function runUpdateCheckIfDueInternal({ enabled, currentVersion, onResult, 
         await inFlightCheckPromise;
         const cacheAfterInflight = readCache();
         if (cacheAfterInflight) {
-            emitResult(onResult, cacheAfterInflight.hasUpdate, cacheAfterInflight.latestTag, cacheAfterInflight.latestUrl);
+            emitResult(
+                onResult,
+                resolveCachedHasUpdate(cacheAfterInflight, currentVersion),
+                cacheAfterInflight.latestTag,
+                cacheAfterInflight.latestUrl,
+            );
             return;
         }
     }
@@ -156,13 +173,13 @@ async function runUpdateCheckIfDueInternal({ enabled, currentVersion, onResult, 
     const cache = readCache();
 
     if (!force && cache && wasCheckedThisSession()) {
-        emitResult(onResult, cache.hasUpdate, cache.latestTag, cache.latestUrl);
+        emitResult(onResult, resolveCachedHasUpdate(cache, currentVersion), cache.latestTag, cache.latestUrl);
         return;
     }
 
     if (!force && cache && cache.checkedAt > 0 && (now - cache.checkedAt) < ONE_DAY_MS) {
         markCheckedThisSession();
-        emitResult(onResult, cache.hasUpdate, cache.latestTag, cache.latestUrl);
+        emitResult(onResult, resolveCachedHasUpdate(cache, currentVersion), cache.latestTag, cache.latestUrl);
         return;
     }
 

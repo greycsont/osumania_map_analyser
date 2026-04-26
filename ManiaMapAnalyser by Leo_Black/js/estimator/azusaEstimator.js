@@ -338,7 +338,7 @@ function estimateDanielNumeric(result) {
             return parsed;
         }
     }
-
+    
     const star = Number(result?.star);
     if (!Number.isFinite(star)) {
         return null;
@@ -352,6 +352,19 @@ function estimateDanielNumeric(result) {
 
     const lowPart = -2 + 13 * Math.pow(clamp(star / 6.56, 0, 1), 1.72);
     return Number(lowPart.toFixed(2));
+}
+
+function hasDanielNativeNumeric(result) {
+    const raw = result?.numericDifficulty;
+    if (typeof raw === "number") {
+        return Number.isFinite(raw);
+    }
+
+    if (typeof raw === "string" && raw.trim().length > 0) {
+        return Number.isFinite(Number(raw));
+    }
+
+    return false;
 }
 
 function estimateSunnyNumeric(result) {
@@ -1012,17 +1025,23 @@ export function runAzusaEstimatorFromText(osuText, options = {}) {
     const jackQ95 = quantileFromSorted(jackSorted, 0.95);
 
     let danielNumeric = null;
+    let danielResult = precomputedDanielResult || null;
+    let danielHasNativeNumeric = false;
     let sunnyNumeric = null;
     let sunnyResult = precomputedSunnyResult;
 
     if (precomputedDanielResult) {
         danielNumeric = estimateDanielNumeric(precomputedDanielResult);
+        danielHasNativeNumeric = hasDanielNativeNumeric(precomputedDanielResult);
     } else {
         try {
-            const daniel = runDanielEstimatorFromText(osuText, options);
-            danielNumeric = estimateDanielNumeric(daniel);
+            danielResult = runDanielEstimatorFromText(osuText, options);
+            danielNumeric = estimateDanielNumeric(danielResult);
+            danielHasNativeNumeric = hasDanielNativeNumeric(danielResult);
         } catch {
             danielNumeric = null;
+            danielResult = null;
+            danielHasNativeNumeric = false;
         }
     }
 
@@ -1041,7 +1060,20 @@ export function runAzusaEstimatorFromText(osuText, options = {}) {
         }
     }
 
-    const blendDetails = resolveRcBlendComponents(primaryNumeric, danielNumeric, sunnyNumeric, {
+    let danielNumericForBlend = danielNumeric;
+    if (!danielHasNativeNumeric && Number.isFinite(danielNumeric)) {
+        const highSignal = Math.max(
+            Number.isFinite(primaryNumeric) ? primaryNumeric : -Infinity,
+            Number.isFinite(sunnyNumeric) ? sunnyNumeric : -Infinity,
+            danielNumeric,
+        );
+
+        if (highSignal < 14) {
+            danielNumericForBlend = 0;
+        }
+    }
+
+    const blendDetails = resolveRcBlendComponents(primaryNumeric, danielNumericForBlend, sunnyNumeric, {
         anchorImbalance,
         chordRate,
         jackQ95,
@@ -1054,7 +1086,7 @@ export function runAzusaEstimatorFromText(osuText, options = {}) {
         { anchorImbalance, chordRate, jackQ95 },
         primaryNumeric,
         sunnyNumeric,
-        danielNumeric,
+        danielNumericForBlend,
     );
     const preOutputNumeric = clamp(Number(calibratedNumeric) + curveGapResidual, -2, 20);
     const outputNumeric = calibrateAzusaOutputNumeric(preOutputNumeric);
@@ -1064,7 +1096,7 @@ export function runAzusaEstimatorFromText(osuText, options = {}) {
         { anchorImbalance, chordRate, jackQ95 },
         primaryNumeric,
         sunnyNumeric,
-        danielNumeric,
+        danielNumericForBlend,
     );
     const finalNumeric = clamp(Number(outputNumeric) + postCurveGapResidual, -2, 20);
     const estDiff = numericToRcLabel(finalNumeric);
@@ -1082,6 +1114,8 @@ export function runAzusaEstimatorFromText(osuText, options = {}) {
             primaryNumeric: Number(primaryNumeric.toFixed(4)),
             blendNumeric: Number.isFinite(numericDifficulty) ? Number(numericDifficulty.toFixed(4)) : null,
             danielNumeric: Number.isFinite(danielNumeric) ? Number(danielNumeric.toFixed(4)) : null,
+            danielNumericForBlend: Number.isFinite(danielNumericForBlend) ? Number(danielNumericForBlend.toFixed(4)) : null,
+            danielHasNativeNumeric,
             sunnyNumeric: Number.isFinite(sunnyNumeric) ? Number(sunnyNumeric.toFixed(4)) : null,
             notes: taps.length,
             calibratedNumeric: Number.isFinite(calibratedNumeric) ? Number(calibratedNumeric.toFixed(4)) : null,
